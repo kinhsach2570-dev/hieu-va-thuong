@@ -17,3 +17,10 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}img,video{max-width:100
 @media(max-width:580px){.header-actions{order:2;width:100%;justify-content:flex-end;margin-top:-5px}.account-link{font-size:12px;min-height:44px}.saved-link{min-height:44px;min-width:44px}.brand{max-width:100%}header{gap:12px}nav a{min-height:44px;display:flex;align-items:center}.card-art.book-cover:has(img){padding:10px}.card-body{padding:20px}.search input{font-size:16px}.tabs button{min-height:44px}.search{min-height:46px}.chapter-article h3{font-size:23px}.chapter-navigation .button{min-height:44px}dialog{padding:23px 18px}#accountDialog input,#accountDialog textarea{font-size:16px}.hero{gap:25px}}
 @media(max-width:360px){.hero h1{font-size:44px}.brand{font-size:21px}.brand small{letter-spacing:1.4px}nav{gap:24px}.section-top h2{font-size:30px}.practice{padding:22px}.practice p{font-size:18px}.tabs button{padding:8px 13px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+/* Keep saving within reach without moving away from the reading position. */
+.reading-progress{position:sticky;top:0;z-index:3;background:#f8f7f2;border:1px solid #dce1d5;border-radius:6px;padding:12px;margin:0 0 22px;box-shadow:0 3px 12px #233c3020}
+.progress-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.progress-actions label{display:flex;align-items:center;gap:8px;font-size:13px}
+.progress-actions input{width:90px;padding:10px;font-size:16px}
+.reading-progress .hint{margin:8px 0 0;font-size:12px;line-height:1.6}
+@media(max-width:580px){.reading-progress{padding:10px}.progress-actions{gap:8px}.progress-actions button{min-height:44px;font-size:12px}}
