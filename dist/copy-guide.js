@@ -1,0 +1,15 @@
+/* Local visual comparison only. Never changes source records or copied HTML. */
+(() => {
+'use strict';
+const segmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter('vi',{granularity:'grapheme'}):{segment(text){return Array.from(text.matchAll(/\P{M}\p{M}*|\p{M}+/gu),m=>({segment:m[0],index:m.index}))}};
+function units(text){const out=[];for(const s of segmenter.segment(text)){if(/\s/u.test(s.segment))continue;out.push({value:s.segment.normalize('NFC').toLocaleLowerCase('vi').replace(/[“”]/g,'"').replace(/[‘’]/g,"'"),start:s.index,end:s.index+s.segment.length})}return out}
+function compare(source,typed){const a=units(source),b=units(typed);let count=0;while(count<a.length&&count<b.length&&a[count].value===b[count].value)count++;return{count,total:a.length,typed:b.length,end:count?a[count-1].end:0,mismatch:count<b.length,complete:a.length>0&&count===a.length&&! (b.length>a.length)}}
+function mount(host,getText){let root=null,original='',text='',nodes=[],composing=false,lastEnd=-1;const status=document.createElement('p');status.id='copyGuideStatus';status.className='copy-guide-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');host.before(status);
+const controls=document.createElement('label');controls.className='copy-guide-follow';const follow=document.createElement('input');follow.type='checkbox';follow.checked=true;controls.append(follow,' Tự cuộn Kinh mẫu theo nét chép');status.before(controls);
+function update(){if(!root||composing)return;const result=compare(text,getText());root.innerHTML=original;const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);nodes=[];let offset=0,n;while(n=walker.nextNode()){nodes.push({node:n,start:offset,end:offset+n.data.length});offset+=n.data.length}let last=null;for(const entry of nodes){if(entry.start>=result.end)break;const length=Math.min(entry.node.data.length,result.end-entry.start);if(!length)continue;const mark=document.createElement('mark');mark.className='copy-guide-done';mark.textContent=entry.node.data.slice(0,length);entry.node.replaceWith(mark,document.createTextNode(entry.node.data.slice(length)));last=mark}status.classList.toggle('needs-review',result.mismatch);status.textContent=!result.total?'Bản mẫu này chưa có văn bản để dò.':result.complete?'Đã chép khớp toàn bộ bản mẫu. Bạn có thể lưu và chép trang tiếp.':result.mismatch?'Đã khớp '+result.count+' / '+result.total+' ký tự. Có chỗ khác bản mẫu sau vùng màu vàng; hãy kiểm tra dấu và chữ để tiếp tục.':'Đã khớp '+result.count+' / '+result.total+' ký tự · Chữ đã chép được in đậm và tô vàng.';
+if(follow.checked&&last&&result.end!==lastEnd){const r=last.getBoundingClientRect(),h=host.getBoundingClientRect();if(r.bottom>h.bottom-45||r.top<h.top+25)host.scrollTop+=r.top-h.top-host.clientHeight*.45}lastEnd=result.end;
+}
+return{source(element){root=element;original=root.innerHTML;text=root.textContent;lastEnd=-1;update()},update,composition(active){composing=active;if(!active)update()}};
+}
+window.HVTCopyGuide={compare,mount};
+})();
