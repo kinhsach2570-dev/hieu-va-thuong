@@ -1,53 +1,18 @@
 (() => {
-'use strict';
-const c=window.HVT;
-let active=null;
-const userId=()=>c.currentUser?.()?.id;
-const ratio=dialog=>Math.min(1,Math.max(0,dialog.scrollTop/Math.max(1,dialog.scrollHeight-dialog.clientHeight)));
-function messageFor(error){return error.status===401?'Phiên đã hết hạn. Đăng nhập lại để lưu vị trí.':/reading_progress|schema cache|42P01/i.test(error.message)?'Chưa bật lưu vị trí đọc. Quản trị cần chạy upgrade-reading-progress.sql.':'Chưa lưu được vị trí. Kiểm tra kết nối rồi nhấn lưu lại.'}
-async function attach({item,container,dialog,parts=[],selectSection,isCurrent}){
- if(item.kind==='video')return;
- const state={item,container,dialog,parts,selectSection,isCurrent,sectionId:parts[0]?.id||null,user:null,sequence:0,loading:false,changed:false,restoring:false};active=state;
- const box=document.createElement('section');box.className='reading-progress';
- box.innerHTML='<div class="progress-actions"><button type="button" class="button secondary" data-save-position>Lưu vị trí đang đọc</button>'+(item.file_path?'<label>Trang PDF đang đọc<input data-pdf-page type="number" min="1" max="99999" value="1" aria-label="Trang PDF đang đọc"></label>':'')+'</div><p role="status" class="hint" data-position-status></p>';
- container.prepend(box);
- state.box=box;
- const status=text=>box.querySelector('[data-position-status]').textContent=text;
- const pdf=box.querySelector('[data-pdf-page]');
- function pdfLink(page){const link=dialog.querySelector('[data-pdf-link]');if(link){link.href=link.href.split('#')[0]+'#page='+page}}
- if(pdf)pdf.oninput=()=>{if(pdf.checkValidity())pdfLink(Number(pdf.value))};
- function current(id,seq){return active===state&&isCurrent()&&userId()===id&&state.sequence===seq}
- state.refresh=async()=>{
-  const id=userId(),seq=++state.sequence;state.user=id;
-  box.querySelector('button').disabled=!id;
-  status(id?'Nhấn “Lưu vị trí đang đọc” trước khi dừng.':'Đăng nhập thành viên để lưu vị trí và đọc tiếp trên thiết bị khác. Bạn vẫn đọc được toàn bộ nội dung.');
-  if(!id)return;
-  state.loading=true;state.changed=false;box.querySelector('button').disabled=true;
-  try{
-   const rows=await c.api('/rest/v1/reading_progress?select=section_id,scroll_ratio,pdf_page&resource_id=eq.'+encodeURIComponent(item.id)+'&user_id=eq.'+encodeURIComponent(id)+'&limit=1');
-   if(!current(id,seq)||state.changed||!rows?.length)return;
-   const request=new URLSearchParams(window.location.search);if(request.get('read')===item.id&&request.has('section')){status('Đang mở trang theo liên kết. Vị trí đã lưu của bạn vẫn được giữ.');return}const saved=rows[0];
-   if(saved.section_id){const n=parts.findIndex(p=>p.id===saved.section_id);if(n<0){status('Trang đã lưu hiện không còn công khai. Bạn đang đọc từ đầu.');return}state.restoring=true;selectSection(n);state.restoring=false}
-   if(pdf){pdf.value=saved.pdf_page||1;pdfLink(saved.pdf_page||1)}
-   status('Đã mở lại vị trí bạn lưu lần trước.'+(pdf?' PDF: trang '+pdf.value+'.':''));
-   const restore=()=>{if(current(id,seq))dialog.scrollTop=Math.max(0,dialog.scrollHeight-dialog.clientHeight)*(Number(saved.scroll_ratio)||0)};
-   requestAnimationFrame(restore);
-   // Covers may finish loading after text: restore once their layout is available.
-   dialog.querySelectorAll('img').forEach(img=>{if(!img.complete)img.addEventListener('load',restore,{once:true})});
-  }catch(error){if(current(id,seq))status(messageFor(error))}
-  finally{if(current(id,seq)){state.loading=false;box.querySelector('button').disabled=false}}
- };
- box.querySelector('button').onclick=async()=>{
-  const id=userId(),seq=state.sequence;if(state.loading)return;if(!id){status('Đăng nhập thành viên để lưu vị trí.');return}
-  if(pdf&&!pdf.checkValidity()){pdf.reportValidity();return}
-  const button=box.querySelector('button');button.disabled=true;
-  const record={user_id:id,resource_id:item.id,section_id:state.sectionId,scroll_ratio:ratio(dialog),pdf_page:pdf?Number(pdf.value):1};
-  try{await c.api('/rest/v1/reading_progress?on_conflict=user_id,resource_id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(record)});if(current(id,seq))status('Đã lưu vị trí. Lần mở sau sẽ tiếp tục từ đây.')}
-  catch(error){if(current(id,seq))status(messageFor(error))}
-  finally{if(current(id,seq))button.disabled=false}
- };
- await state.refresh();
-}
-window.HVTProgress={attach,section(id){if(active){if(active.loading&&!active.restoring)active.changed=true;active.sectionId=id}},close(){if(active)active.sequence++;active=null}};
-for(const event of ['hvt-auth-change','hvt-auth-lost'])window.addEventListener(event,()=>{if(active?.isCurrent())active.refresh()});
+'use strict';const c=window.HVT;let active=null;const queues=new Map();
+const uid=()=>c.currentUser?.()?.id||null,ratio=d=>Math.min(1,Math.max(0,d.scrollTop/Math.max(1,d.scrollHeight-d.clientHeight)));
+const storageKey=(id,book)=>'hvt-auto-read:'+id+':'+book;
+function backup(snap){try{localStorage.setItem(storageKey(snap.user_id,snap.resource_id),JSON.stringify(snap))}catch{}}
+function readBackup(id,book){try{return JSON.parse(localStorage.getItem(storageKey(id,book)))}catch{return null}}
+function write(state,snap){backup(snap);const key=snap.user_id+':'+snap.resource_id,previous=queues.get(key)||Promise.resolve();const job=previous.catch(()=>{}).then(async()=>{if(uid()!==snap.user_id)throw Error('Phiên đã thay đổi.');const {local_time,...row}=snap;await c.api('/rest/v1/reading_progress?on_conflict=user_id,resource_id',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(row)});const cached=readBackup(snap.user_id,snap.resource_id);if(JSON.stringify(cached)===JSON.stringify(snap))try{localStorage.removeItem(storageKey(snap.user_id,snap.resource_id))}catch{}if(active===state)state.status('Đã tự lưu vị trí đọc. Bạn có thể quay lại từ trang này.');});queues.set(key,job);job.then(()=>{if(queues.get(key)===job)queues.delete(key)},()=>{if(queues.get(key)===job)queues.delete(key);if(active===state)state.status('Chưa đồng bộ vị trí. Sẽ thử lại khi có mạng; giữ bản khôi phục trên trình duyệt nếu bộ nhớ khả dụng.')});return job}
+function snapshot(s){const readingRatio=s.dialog.open===false?(s.lastRatio||0):ratio(s.dialog);s.lastRatio=readingRatio;return{user_id:s.actor,resource_id:s.item.id,section_id:s.sectionId,scroll_ratio:readingRatio,pdf_page:s.pdf?Number(s.pdf.value)||1:1,local_time:Date.now()}}
+function flush(s=active){if(!s||s.loading||!s.actor||s.actor!==uid())return Promise.resolve();clearTimeout(s.timer);if(s.pdf&&!s.pdf.checkValidity())return Promise.resolve();return write(s,snapshot(s))}
+function schedule(s){if(!s||s.loading||!uid())return;backup(snapshot(s));clearTimeout(s.timer);s.timer=setTimeout(()=>flush(s).catch(()=>{}),900)}
+async function attach({item,container,dialog,parts=[],selectSection,isCurrent}){if(item.kind==='video')return;const s={item,dialog,parts,selectSection,isCurrent,sectionId:parts[0]?.id||null,actor:uid(),loading:false,userMoved:false,restoring:false,sequence:0,timer:null};active=s;const box=document.createElement('section');box.className='reading-progress';box.innerHTML='<div class="progress-actions"><button type="button" class="button secondary" data-save-position>Lưu vị trí ngay</button>'+(item.file_path?'<label>Trang PDF đang đọc<input data-pdf-page type="number" min="1" max="99999" value="1" aria-label="Trang PDF đang đọc"></label>':'')+'</div><p role="status" class="hint" data-position-status></p>';container.prepend(box);s.box=box;s.pdf=box.querySelector('[data-pdf-page]');s.status=t=>box.querySelector('[data-position-status]').textContent=t;
+const valid=(id,n)=>active===s&&isCurrent()&&uid()===id&&s.sequence===n;
+function pdfLink(){const a=dialog.querySelector('[data-pdf-link]');if(a)a.href=a.href.split('#')[0]+'#page='+(Number(s.pdf?.value)||1)}
+s.refresh=async()=>{const actor=uid(),n=++s.sequence;s.actor=actor;s.loading=!!actor;s.userMoved=false;box.querySelector('button').disabled=!actor;s.status(actor?'Vị trí đọc được tự lưu khi đổi trang/phần và sau khi dừng cuộn.':'Đăng nhập thành viên để tự lưu vị trí đọc. Thư viện vẫn mở cho mọi người.');if(!actor)return;try{await (queues.get(actor+':'+item.id)||Promise.resolve()).catch(()=>{});const rows=await c.api('/rest/v1/reading_progress?select=section_id,scroll_ratio,pdf_page,updated_at&resource_id=eq.'+encodeURIComponent(item.id)+'&user_id=eq.'+encodeURIComponent(actor)+'&limit=1');if(!valid(actor,n)||s.userMoved)return;const local=readBackup(actor,item.id),remote=rows?.[0],saved=local&&(!remote||local.local_time>Date.parse(remote.updated_at||0))?local:remote;const query=new URLSearchParams(location.search);if(saved&&!(query.get('read')===item.id&&query.has('section'))){if(saved.section_id){const ix=parts.findIndex(p=>p.id===saved.section_id);if(ix<0){s.status('Trang đã lưu hiện không còn công khai. Đang mở từ đầu.');return}s.restoring=true;selectSection(ix);s.restoring=false;s.sectionId=saved.section_id}if(s.pdf){s.pdf.value=saved.pdf_page||1;pdfLink()}const restore=()=>{if(valid(actor,n)){s.lastRatio=Number(saved.scroll_ratio)||0;dialog.scrollTop=Math.max(0,dialog.scrollHeight-dialog.clientHeight)*s.lastRatio}};requestAnimationFrame(restore);dialog.querySelectorAll('img').forEach(img=>{if(!img.complete)img.addEventListener('load',restore,{once:true})});s.status(local===saved?'Đã khôi phục vị trí chưa đồng bộ trên trình duyệt.':'Đã mở lại vị trí bạn đọc lần trước.');if(local===saved)write(s,local).catch(()=>{})}}catch{s.status('Chưa tải được vị trí đã lưu. Kiểm tra kết nối hoặc nâng cấp cơ sở dữ liệu.')}finally{if(valid(actor,n)){s.loading=false;box.querySelector('button').disabled=false;if(s.userMoved)schedule(s)}}};
+box.querySelector('button').onclick=()=>{if(!uid()){s.status('Đăng nhập để lưu vị trí.');return}flush(s).catch(()=>{})};if(s.pdf)s.pdf.oninput=()=>{if(s.pdf.checkValidity()){pdfLink();schedule(s)}};s.onScroll=()=>{if(s.loading&&!s.restoring)s.userMoved=true;schedule(s)};dialog.addEventListener('scroll',s.onScroll,{passive:true});await s.refresh();}
+window.HVTProgress={attach,section(id){if(active&&active.sectionId!==id){if(active.loading&&!active.restoring)active.userMoved=true;active.sectionId=id;schedule(active)}},close(){if(active){const old=active;flush(old).catch(()=>{});clearTimeout(old.timer);old.dialog.removeEventListener('scroll',old.onScroll);old.sequence++;active=null}}};
+for(const event of ['hvt-auth-change','hvt-auth-lost'])window.addEventListener(event,()=>{if(active?.isCurrent())active.refresh()});window.addEventListener('online',()=>flush().catch(()=>{}));document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flush().catch(()=>{})});window.addEventListener('pagehide',()=>flush().catch(()=>{}));
 })();
