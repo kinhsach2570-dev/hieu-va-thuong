@@ -41,6 +41,16 @@
   async function signOut(){try{if(session)await api('/auth/v1/logout',{method:'POST'})}finally{clearSession();window.dispatchEvent(new Event('hvt-auth-change'))}}
   const publicApi=(path,options={})=>raw(path,{...options,anonymous:true});
   async function memberSignIn(email,password){const result=await raw('/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});setSession(result);window.dispatchEvent(new Event('hvt-auth-change'));return result.user}
+  async function changePassword(currentPassword,newPassword){
+    if(!session?.user?.email)throw Error('Đăng nhập trước khi đổi mật khẩu.');
+    if(newPassword.length<8||newPassword.length>128)throw Error('Mật khẩu mới cần từ 8 đến 128 ký tự.');
+    const id=session.user.id;
+    const verified=await raw('/auth/v1/token?grant_type=password',{method:'POST',anonymous:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({email:session.user.email,password:currentPassword})});
+    if(verified?.user?.id!==id)throw Error('Không xác minh được tài khoản.');
+    setSession(verified);
+    const result=await api('/auth/v1/user',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:newPassword,current_password:currentPassword})});
+    setSession({...session,user:result.user||result});return result;
+  }
   async function register(email,password,name){const origin=window.location?.origin;const redirect=origin&&https(origin)?'?redirect_to='+encodeURIComponent(origin+'/'):'';const result=await raw('/auth/v1/signup'+redirect,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,data:{display_name:name}})});if(result?.access_token){setSession(result);window.dispatchEvent(new Event('hvt-auth-change'))}return result}
   async function consumeAuthRedirect(){const params=new URLSearchParams(window.location?.hash?.slice(1)||'');if(!params.has('access_token')&&!params.has('error_description'))return null;window.history.replaceState(null,'',window.location.pathname+window.location.search);if(params.has('error_description'))throw Error(params.get('error_description'));const token=params.get('access_token'),user=await raw('/auth/v1/user',{headers:{Authorization:'Bearer '+token}});setSession({access_token:token,refresh_token:params.get('refresh_token'),expires_in:Number(params.get('expires_in'))||3600,user});window.dispatchEvent(new Event('hvt-auth-change'));return user}
   async function resources(){let all=[],offset=0;while(true){const page=await publicApi('/rest/v1/resources?select=*&order=created_at.desc,id.desc&limit=1000&offset='+offset);all.push(...page);if(page.length<1000)return all;offset+=page.length}}
@@ -58,5 +68,5 @@
     const canvas=document.createElement('canvas'),ratio=Math.min(1,1600/Math.max(image.width,image.height));canvas.width=Math.max(1,Math.round(image.width*ratio));canvas.height=Math.max(1,Math.round(image.height*ratio));const ctx=canvas.getContext('2d');ctx.fillStyle='#f8f7f2';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);image.close();
     const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.88));if(!blob)throw Error('Chưa xử lý được ảnh bìa.');return blob;
   }
-  window.HVT={configured,unsafe,base,esc,https,api,publicApi,resources,signIn,signOut,memberSignIn,register,consumeAuthRedirect,currentUser:()=>session?.user||null,publicFile,cover,youtubeId,embed,upload,removeFiles,imageFile,hasSession:()=>!!session};
+  window.HVT={configured,unsafe,base,esc,https,api,publicApi,resources,signIn,signOut,memberSignIn,changePassword,register,consumeAuthRedirect,currentUser:()=>session?.user||null,publicFile,cover,youtubeId,embed,upload,removeFiles,imageFile,hasSession:()=>!!session};
 })();

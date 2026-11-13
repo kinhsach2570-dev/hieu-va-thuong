@@ -26,7 +26,7 @@ async function attach({item,container,dialog,parts=[],selectSection,isCurrent}){
   try{
    const rows=await c.api('/rest/v1/reading_progress?select=section_id,scroll_ratio,pdf_page&resource_id=eq.'+encodeURIComponent(item.id)+'&user_id=eq.'+encodeURIComponent(id)+'&limit=1');
    if(!current(id,seq)||state.changed||!rows?.length)return;
-   const saved=rows[0];
+   const request=new URLSearchParams(window.location.search);if(request.get('read')===item.id&&request.has('section')){status('Đang mở trang theo liên kết. Vị trí đã lưu của bạn vẫn được giữ.');return}const saved=rows[0];
    if(saved.section_id){const n=parts.findIndex(p=>p.id===saved.section_id);if(n<0){status('Trang đã lưu hiện không còn công khai. Bạn đang đọc từ đầu.');return}state.restoring=true;selectSection(n);state.restoring=false}
    if(pdf){pdf.value=saved.pdf_page||1;pdfLink(saved.pdf_page||1)}
    status('Đã mở lại vị trí bạn lưu lần trước.'+(pdf?' PDF: trang '+pdf.value+'.':''));
