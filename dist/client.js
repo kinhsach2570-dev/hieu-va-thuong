@@ -12,8 +12,9 @@
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function raw(path,options={}){
     if(!configured)throw Error(unsafe?'Cấu hình không hợp lệ: chỉ dùng publishable key hoặc anon key.':'Chưa kết nối Supabase. Điền cấu hình trong config.js trước.');
-    const headers={apikey:key,...(session?.access_token?{Authorization:'Bearer '+session.access_token}:key.startsWith('eyJ')?{Authorization:'Bearer '+key}:{}),...options.headers};
-    const response=await fetch(base+path,{...options,headers});
+    const {anonymous,...requestOptions}=options;
+    const headers={apikey:key,...(!anonymous&&session?.access_token?{Authorization:'Bearer '+session.access_token}:key.startsWith('eyJ')?{Authorization:'Bearer '+key}:{}),...options.headers};
+    const response=await fetch(base+path,{...requestOptions,headers});
     const data=await response.text();let result=null;try{result=data?JSON.parse(data):null}catch{}
     if(!response.ok){const error=Error(result?.message||result?.error_description||result?.msg||'Yêu cầu chưa thành công ('+response.status+').');error.status=response.status;throw error}
     return result;
@@ -34,8 +35,12 @@
     try{const membership=await api('/rest/v1/admins?select=user_id&user_id=eq.'+encodeURIComponent(result.user.id));if(!membership?.length)throw Error('Tài khoản này chưa được cấp quyền quản trị.');return result.user}
     catch(e){try{await raw('/auth/v1/logout',{method:'POST'})}catch{}session=null;throw e}
   }
-  async function signOut(){try{if(session)await api('/auth/v1/logout',{method:'POST'})}finally{session=null}}
-  async function resources(){let all=[],offset=0;while(true){const page=await api('/rest/v1/resources?select=*&order=created_at.desc,id.desc&limit=1000&offset='+offset);all.push(...page);if(page.length<1000)return all;offset+=page.length}}
+  async function signOut(){try{if(session)await api('/auth/v1/logout',{method:'POST'})}finally{session=null;window.dispatchEvent(new Event('hvt-auth-change'))}}
+  const publicApi=(path,options={})=>raw(path,{...options,anonymous:true});
+  async function memberSignIn(email,password){const result=await raw('/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});setSession(result);window.dispatchEvent(new Event('hvt-auth-change'));return result.user}
+  async function register(email,password,name){const origin=window.location?.origin;const redirect=origin&&https(origin)?'?redirect_to='+encodeURIComponent(origin+'/'):'';const result=await raw('/auth/v1/signup'+redirect,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,data:{display_name:name}})});if(result?.access_token){setSession(result);window.dispatchEvent(new Event('hvt-auth-change'))}return result}
+  async function consumeAuthRedirect(){const params=new URLSearchParams(window.location?.hash?.slice(1)||'');if(!params.has('access_token')&&!params.has('error_description'))return null;window.history.replaceState(null,'',window.location.pathname+window.location.search);if(params.has('error_description'))throw Error(params.get('error_description'));const token=params.get('access_token'),user=await raw('/auth/v1/user',{headers:{Authorization:'Bearer '+token}});setSession({access_token:token,refresh_token:params.get('refresh_token'),expires_in:Number(params.get('expires_in'))||3600,user});window.dispatchEvent(new Event('hvt-auth-change'));return user}
+  async function resources(){let all=[],offset=0;while(true){const page=await publicApi('/rest/v1/resources?select=*&order=created_at.desc,id.desc&limit=1000&offset='+offset);all.push(...page);if(page.length<1000)return all;offset+=page.length}}
   function publicFile(bucket,path){return path?base+'/storage/v1/object/public/'+bucket+'/'+path.split('/').map(encodeURIComponent).join('/'):''}
   function cover(item){return item.cover_path?publicFile('covers',item.cover_path):https(item.cover_url)?.href||''}
   function youtubeId(value){const u=https(value);if(!u)return '';let id='';if(['youtube.com','www.youtube.com','m.youtube.com'].includes(u.hostname)){id=u.pathname==='/watch'?u.searchParams.get('v'):u.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1]}else if(u.hostname==='youtu.be')id=u.pathname.slice(1).split('/')[0];return /^[A-Za-z0-9_-]{11}$/.test(id||'')?id:''}
@@ -50,5 +55,5 @@
     const canvas=document.createElement('canvas'),ratio=Math.min(1,1600/Math.max(image.width,image.height));canvas.width=Math.max(1,Math.round(image.width*ratio));canvas.height=Math.max(1,Math.round(image.height*ratio));const ctx=canvas.getContext('2d');ctx.fillStyle='#f8f7f2';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);image.close();
     const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.88));if(!blob)throw Error('Chưa xử lý được ảnh bìa.');return blob;
   }
-  window.HVT={configured,unsafe,base,esc,https,api,resources,signIn,signOut,publicFile,cover,youtubeId,embed,upload,removeFiles,imageFile,hasSession:()=>!!session};
+  window.HVT={configured,unsafe,base,esc,https,api,publicApi,resources,signIn,signOut,memberSignIn,register,consumeAuthRedirect,currentUser:()=>session?.user||null,publicFile,cover,youtubeId,embed,upload,removeFiles,imageFile,hasSession:()=>!!session};
 })();
