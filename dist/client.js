@@ -1,4 +1,4 @@
-/* Shared public Supabase client. Tokens stay in memory, never in the repository. */
+/* Shared public Supabase client. Session survives navigation within this tab. */
 (() => {
   'use strict';
   const cfg=window.APP_CONFIG||{};
@@ -9,6 +9,9 @@
   if(key.startsWith('eyJ')){try{unsafe=JSON.parse(atob(key.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).role==='service_role'}catch{unsafe=true}}
   const configured=!!(https(base)&&key&&!unsafe);
   let session=null, refreshPending=null;
+  const sessionKey='hvt-session:'+base;
+  function clearSession(){session=null;try{window.sessionStorage.removeItem(sessionKey)}catch{}}
+  if(configured){try{const cached=JSON.parse(window.sessionStorage.getItem(sessionKey));if(cached?.access_token&&cached?.refresh_token&&cached?.user?.id&&Number.isFinite(cached.expires_at))session=cached}catch{}}
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function raw(path,options={}){
     if(!configured)throw Error(unsafe?'Cấu hình không hợp lệ: chỉ dùng publishable key hoặc anon key.':'Chưa kết nối Supabase. Điền cấu hình trong config.js trước.');
@@ -23,19 +26,19 @@
     if(!session?.refresh_token)return;
     if(!refreshPending)refreshPending=(async()=>{
       try{const next=await raw('/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:session.refresh_token})});setSession(next)}
-      catch(e){session=null;window.dispatchEvent(new Event('hvt-auth-lost'));throw Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')}
+      catch(e){clearSession();window.dispatchEvent(new Event('hvt-auth-lost'));throw Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')}
       finally{refreshPending=null}
     })();
     return refreshPending;
   }
-  function setSession(next){session={...next,expires_at:next.expires_at||Math.floor(Date.now()/1000)+(next.expires_in||3600)}}
+  function setSession(next){session={...next,expires_at:next.expires_at||Math.floor(Date.now()/1000)+(next.expires_in||3600)};try{window.sessionStorage.setItem(sessionKey,JSON.stringify(session))}catch{}}
   async function api(path,options={}){if(session&&session.expires_at<Date.now()/1000+60)await refresh();return raw(path,options)}
   async function signIn(email,password){
     const result=await raw('/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});setSession(result);
     try{const membership=await api('/rest/v1/admins?select=user_id&user_id=eq.'+encodeURIComponent(result.user.id));if(!membership?.length)throw Error('Tài khoản này chưa được cấp quyền quản trị.');return result.user}
-    catch(e){try{await raw('/auth/v1/logout',{method:'POST'})}catch{}session=null;throw e}
+    catch(e){try{await raw('/auth/v1/logout',{method:'POST'})}catch{}clearSession();throw e}
   }
-  async function signOut(){try{if(session)await api('/auth/v1/logout',{method:'POST'})}finally{session=null;window.dispatchEvent(new Event('hvt-auth-change'))}}
+  async function signOut(){try{if(session)await api('/auth/v1/logout',{method:'POST'})}finally{clearSession();window.dispatchEvent(new Event('hvt-auth-change'))}}
   const publicApi=(path,options={})=>raw(path,{...options,anonymous:true});
   async function memberSignIn(email,password){const result=await raw('/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});setSession(result);window.dispatchEvent(new Event('hvt-auth-change'));return result.user}
   async function register(email,password,name){const origin=window.location?.origin;const redirect=origin&&https(origin)?'?redirect_to='+encodeURIComponent(origin+'/'):'';const result=await raw('/auth/v1/signup'+redirect,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,data:{display_name:name}})});if(result?.access_token){setSession(result);window.dispatchEvent(new Event('hvt-auth-change'))}return result}

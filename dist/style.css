@@ -24,3 +24,6 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}img,video{max-width:100
 .progress-actions input{width:90px;padding:10px;font-size:16px}
 .reading-progress .hint{margin:8px 0 0;font-size:12px;line-height:1.6}
 @media(max-width:580px){.reading-progress{padding:10px}.progress-actions{gap:8px}.progress-actions button{min-height:44px;font-size:12px}}
+
+/* V7: a separate sticky close row always sits above reading controls. */
+#reader{padding-top:12px}#reader>.close{position:sticky;top:0;z-index:20;float:none;display:block;margin:0 0 8px auto;width:44px;height:44px;border:1px solid var(--line);border-radius:50%;background:var(--bg);font-size:28px;box-shadow:0 2px 6px #233c3020}#reader .reading-progress{top:54px;z-index:3;padding-right:16px}#readerContent{clear:both}@media(max-width:580px){nav{gap:18px;flex-wrap:wrap}#reader>.close{width:44px;height:44px}#reader .reading-progress{top:54px}}
