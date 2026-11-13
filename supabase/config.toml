@@ -1,0 +1,4 @@
+[functions.manage-members]
+# The handler verifies the user JWT against Supabase Auth and rechecks admin rights.
+# This supports projects using asymmetric JWT signing keys.
+verify_jwt = false
